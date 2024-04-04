@@ -150,7 +150,7 @@ ui <- fluidPage(#theme = "bootstrap.css",
                  ),
                  mainPanel(
                    fluidRow(
-                     shinycssloaders::withSpinner(plotOutput(outputId = "hoff.plot")),
+                     shinycssloaders::withSpinner(plotOutput(outputId = "hoff_plot")),
                      tableOutput(outputId = "hoff_table")
                    )
                  )
@@ -293,18 +293,21 @@ server <- function(input, output, session) {
                       choices = header,
                       selected = tail(header, 1)
     )
+    
     # Can also set the label and select items
     updateSelectInput(session, "Analyte_hoff",
                       label = paste("Select Analyte"),
                       choices = header,
                       selected = tail(header, 1)
     )
+    
     # Can also set the label and select items
     updateSelectInput(session, "Analyte_nonpara",
                       label = paste("Select Analyte"),
                       choices = header,
                       selected = tail(header, 1)
     )
+    
     # Can also set the label and select items
     updateSelectInput(session, "Analyte_refineR",
                       label = paste("Select Analyte"),
@@ -316,7 +319,7 @@ server <- function(input, output, session) {
   
   #mixtool specific information 
   analyte.mix<-eventReactive(input$go_mix, {analyte<-input$Analyte_mix})
-  unit_mix<-eventReactive(input$go_mix, {unit<-input$unit1})
+  unit_mix<-eventReactive(input$go_mix, {unit<-input$unit_mix})
   population<-eventReactive(input$go_mix, {population<-input$population})
   
   
@@ -457,7 +460,7 @@ server <- function(input, output, session) {
   })
   
   ref.int.mix <- eventReactive(input$go_mix, {
-    my_df1 <- data.frame()
+    my_df_mix <- data.frame()
     
     
     for (i in 1:population()) {
@@ -467,12 +470,14 @@ server <- function(input, output, session) {
                              qnorm(0.975,mixtool.fit()$mu[i], 
                                    mixtool.fit()$sigma[i]), 
                              mixtool.fit()$lambda[i])
-      my_df1 <- bind_rows(my_df1, datalist)
+      my_df_mix <- bind_rows(my_df_mix, datalist)
       
     }
     
-    names(my_df1) <- c("Reference", "Mean", 
-                       "Lower Limit", "Upper Limit", "Lambda")
+    names(my_df_mix) <- c("Reference", "Mean", 
+                       "Lower Limit", "Upper Limit",
+                       "Lambda") 
+    
     output$downloadDataMix <- downloadHandler(
       filename = function() {
         paste("mixmodel-data",
@@ -482,10 +487,10 @@ server <- function(input, output, session) {
               Sys.Date(), '.csv', sep='')
       },
       content = function(con) {
-        write.csv(my_df1 , con)
+        write.csv(my_df_mix , con)
       }
     )
-    return(my_df1)
+    return(my_df_mix)
   }
   )
   
@@ -553,7 +558,7 @@ server <- function(input, output, session) {
   
   
   # send plot to outputs 
-  output$hoff.plot <- renderPlot({hoff.plot()})
+  output$hoff_plot <- renderPlot({hoff.plot()})
   
   # NON-Parametric Area
   analyte_nonpara<-eventReactive(input$go_nonpara, {analyte_nonpara<-input$Analyte_nonpara})
@@ -730,12 +735,12 @@ server <- function(input, output, session) {
       }
     )
     
-    output$RefineR_table <- renderTable(getRI(RI))
+    output$refineR_table <- renderTable(getRI(RI))
     
     return(plot_refineR)
   })
   
-  output$RefineRplot <- renderPlot({ plot.refineR() })
+  output$refineR_plot <- renderPlot({ plot.refineR() })
   
 }
 
