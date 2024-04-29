@@ -11,6 +11,7 @@ library("refineR")
 library("shinycssloaders")
 library("viridisLite")
 library("DT")
+library("bestNormalize")
 
 # PLEASE 
 addResourcePath("myfiles", "~/Documents/GitHub/lab_ref_tool/reference_range_GUItool/data_template")
@@ -61,7 +62,8 @@ Hoff.QQ.plot <- function(x, alpha=0.05, from=NA, to=NA, xlim=range(x)) {
 }
 
 
-Get.Hoff.Results <- function(x, alpha=0.05, from=NA, to=NA, xlim=range(x)) {
+Get.Hoff.Results <- function(x, alpha=0.05, 
+                             from=NA, to=NA, xlim=range(x)) {
   x <- sort(x)
   
   qq.data <- as.data.frame(qqnorm(x, datax = TRUE, plot.it = FALSE))
@@ -69,44 +71,33 @@ Get.Hoff.Results <- function(x, alpha=0.05, from=NA, to=NA, xlim=range(x)) {
   if (!is.na(from) & !is.na(to)) {
     linear <- subset(qq.data, x >= from & x <= to)
     lin.mod <- lm(y ~ x, data = linear)
-    RI <- (c(qnorm(alpha/2),qnorm(1-alpha/2))
-           - lin.mod$coefficients[1])/lin.mod$coefficients[2]
+    RI <- (c(qnorm(alpha/2),qnorm(1-alpha/2)) - 
+             lin.mod$coefficients[1])/lin.mod$coefficients[2]
     result <- data.frame("lower limit" = RI[1],"upper limit"=RI[2])
   }
-  
   return(result)
-  
 }
 
-transform_data = function(x,transform_type){
-  
-  if(transform_type == "square"){
-    x = x^2
-  } else if(transform_type == "sqrt"){
-    x = sqrt(x)
-  } else if(transform_type == "log_base_10"){
-    x = log10(x)
-  } else if(transform_type == "natural_log"){
-    x = log(x)
-  }
-  
-  return(x)
-  
+get_transform_func = function(x,
+                              transform_type){
+  if(transform_type == "yj"){
+    transform_func = bestNormalize::yeojohnson(x,standardize = FALSE)
+  }   
+  if(transform_type == "none"){
+    transform_func = bestNormalize::no_transform(x,standardize = FALSE)
+  } 
+  return(transform_func)
 }
 
-invert_transform = function(x,transform_type){
-  
-  if(transform_type == "square"){
-    x = sqrt(x)
-  } else if(transform_type == "sqrt"){
-    x = x^2
-  } else if(transform_type == "log_base_10"){
-    x = 10^x
-  } else if(transform_type == "natural_log"){
-    x = exp(x)
-  }
-  return(x)
-} 
+transform_data = function(x,
+                          transform_function = NULL,
+                          inverse = FALSE){
+  return(
+    predict(transform_function,newdata=x,inverse)
+  )
+}
+
+
 # Define UI for application that draws a histogram
 ui <- fluidPage(#theme = "bootstrap.css",
   fluidRow(
@@ -142,19 +133,27 @@ ui <- fluidPage(#theme = "bootstrap.css",
       ),
       tabPanel("Mixture Modeling", fluid = TRUE,
                sidebarLayout(
-                 sidebarPanel(selectInput(inputId = "Analyte_mix", "Select Analyte", choices = NULL, selected = ""),
-                              
-                              numericInput(inputId = "iterations", label = "# of iterations", value = 10000),
-                              numericInput(inputId = "population", label = "Expected # of Populations", min=2, max=4, value = 2),
-                              numericInput(inputId = "age_lb_mix", label = "age lowerbound ", value = 0),
-                              numericInput(inputId = "age_ub_mix", label = "age upperbound ", min=0, max=150, value=100),
+                 sidebarPanel(selectInput(inputId = "Analyte_mix", 
+                                          "Select Analyte", choices = NULL, selected = ""),
+                              numericInput(inputId = "iterations", 
+                                           label = "# of iterations", value = 10000),
+                              numericInput(inputId = "population", 
+                                           label = "Expected # of Populations", 
+                                           min=2, max=4, value = 2),
+                              numericInput(inputId = "age_lb_mix", 
+                                           label = "age lowerbound ", value = 0),
+                              numericInput(inputId = "age_ub_mix", 
+                                           label = "age upperbound ", min=0, 
+                                           max=150, value=100),
                               radioButtons("sex_mix", h3("Sex Selection"),
                                            choices = list("All" = 1, "Male" = 2,
                                                           "Female" = 3),selected = 1),
                               # Added radio buttons for transformation options
-                              radioButtons(inputId = "transformation_mix", label = "Transformation",
-                                           choices = list("None" = "none", "Ln" = "log", "Log10"="log10","Square Root" = "sqrt", "Square" = "square"), selected = "none"),
-                              
+                              radioButtons(inputId = "transformation_mix", 
+                                           label = "Transformation",
+                                           choices = list("None" = "none", 
+                                                          "Yeo-johnson" = "yj"),
+                                           selected = "none"),
                               actionButton(inputId = "go_mix", label = "Run"),
                               downloadButton("downloadDataMix", "Download"),
                               shiny::helpText("This tab uses Gaussian mixture modeling to compute reference range intervals implemented via the mixtools package in R. It assumes the data is generated by sampling different Gaussian-distributed population (e.g. a non-pathological population and pathological population).  Each population can have their own unique mean, variance, and frequency (lambda).  The lambda parameter refers to the estimated proportion of the population from that normal distribution.")
@@ -162,7 +161,8 @@ ui <- fluidPage(#theme = "bootstrap.css",
                  mainPanel(
                    fluidRow(
                      shinycssloaders::withSpinner(plotOutput(outputId = "mixPlot")),
-                     tableOutput(outputId = "ref.int.mix.table")
+                     tableOutput(outputId = "ref.int.mix.table"),
+                     shinycssloaders::withSpinner(plotOutput(outputId = "mixPlot_os"))
                    )
                  )
                )
@@ -178,8 +178,8 @@ ui <- fluidPage(#theme = "bootstrap.css",
                                                           "Female" = 3),selected = 1),
                               # Added radio buttons for transformation options
                               radioButtons(inputId = "transformation_hoff", label = "Transformation",
-                                           choices = list("None" = "none", "Log" = "log", "Square Root" = "sqrt", "Square" = "square"), selected = "none"),
-                              numericInput(inputId = "linearLL", "Please select the concentration range between the black lines that is most linear (Best Estimate) \
+                                           choices = list("None" = "none", "Yeo-johnson" = "yj"), selected = "none"),
+                              numericInput(inputId = "linearLL", "Please select the range between the black lines that is most linear (Best Estimate) \
                                            Lowerbound", value = -1e6),     
                               numericInput(inputId = "linearUL", "Upperbound",value= 1e6),
                               actionButton(inputId = "go_hoff", label = "Run"),
@@ -204,7 +204,7 @@ ui <- fluidPage(#theme = "bootstrap.css",
                                            choices = list("All" = 1, "Male" = 2,
                                                           "Female" = 3),selected = 1),                              # Added radio buttons for transformation options
                               radioButtons(inputId = "transformation_nonpara", label = "Transformation",
-                                           choices = list("None" = "none", "Log" = "log", "Square Root" = "sqrt", "Square" = "square"), selected = "none"),
+                                           choices = list("None" = "none", "Yeo-johnson" = "yj"), selected = "none"),
                               actionButton(inputId = "go_nonpara", label = "Run"),
                               downloadButton("downloadDataNonpara", "Download"),
                               downloadButton("downloadDataNonparaTukey", "Download (outlier's removed)"),
@@ -228,13 +228,21 @@ ui <- fluidPage(#theme = "bootstrap.css",
                sidebarLayout(
                  sidebarPanel(selectInput(inputId="Analyte_refineR", "Select Analyte", choices = "", selected = ""),
                               
-                              numericInput(inputId = "age_lb_refineR", label = "age lowerbound ", value = 0),
-                              numericInput(inputId = "age_ub_refineR", label = "age upperbound ", min=0, max=150, value = 100),
-                              numericInput(inputId = "RefineR_N_bootstrap", label = "N bootstrap samples", min=0, value = 0, step = 1),
-                              selectInput("refineR_method", "Transformation", choices = c("BoxCox", "modBoxCoxFast", "modBoxCox")),
+                              numericInput(inputId = "age_lb_refineR", 
+                                           label = "age lowerbound ", value = 0),
+                              numericInput(inputId = "age_ub_refineR", 
+                                           label = "age upperbound ", min=0, 
+                                           max=150, value = 100),
+                              numericInput(inputId = "RefineR_N_bootstrap", 
+                                           label = "N bootstrap samples", min=0, 
+                                           value = 0, step = 1),
+                              selectInput("refineR_method", "Transformation", 
+                                          choices = c("BoxCox", "modBoxCoxFast", 
+                                                      "modBoxCox")),
                               radioButtons("sex_refiner", h3("Sex Selection"),
                                            choices = list("All" = 1, "Male" = 2,
-                                                          "Female" = 3),selected = 1),
+                                                          "Female" = 3),
+                                           selected = 1),
                               radioButtons(inputId = "plot_CI", 
                                            label = "Plot Confidence Interval", 
                                            choices = c("True","False")),
@@ -325,8 +333,13 @@ server <- function(input, output, session) {
     )
     
     # Pass to DT
-    datatable(summaryStats, options = list(pageLength = 6, searching = FALSE), rownames = FALSE) %>%
-      formatStyle(columns = c("Statistic"), fontWeight = 'bold', color = 'black', backgroundColor = 'lightgrey')
+    datatable(summaryStats, 
+              options = list(pageLength = 6, searching = FALSE), 
+              rownames = FALSE) %>%
+      formatStyle(columns = c("Statistic"), 
+                  fontWeight = 'bold', 
+                  color = 'black', 
+                  backgroundColor = 'lightgrey')
   }, server = FALSE)
   
   observeEvent(data(), {
@@ -417,87 +430,161 @@ server <- function(input, output, session) {
   age_lb_mix <- eventReactive(input$go_mix, {age_lb_mix<-input$age_lb_mix})
   age_ub_mix <- eventReactive(input$go_mix, {age_ub_mix<-input$age_ub_mix})
   
-  observeEvent(input$go_mix, {show("mixPlot")})
   
-  mixtool.fit<-eventReactive(input$go_mix, {
+  
+  data_clean_mix <- eventReactive(input$go_mix, {
+    data_clean_mix_temp = data()[[analyte.mix()]]
     
-    data_clean_mix = data()[[analyte.mix()]]
-    
-    data_clean_mix = data_clean_mix[data()[["age"]] >= age_lb_mix()] 
-    data_clean_mix = data_clean_mix[data()[["age"]] <= age_ub_mix()] 
+    data_clean_mix_temp = data_clean_mix_temp[data()[["age"]] >= age_lb_mix()] 
+    data_clean_mix_temp = data_clean_mix_temp[data()[["age"]] <= age_ub_mix()] 
     
     if(sex_mix() == 'Male'){
-      data_clean_mix = data_clean_mix[grep(pattern = '^m',
-                                           x = data()[[which(tolower(colnames(data())) == 'sex')]],
-                                           ignore.case = TRUE)] 
+      data_clean_mix_temp = data_clean_mix_temp[grep(pattern = '^m',
+                                                     x = data()[[which(tolower(colnames(data())) == 'sex')]],
+                                                     ignore.case = TRUE)] 
     } else if (sex_mix() == 'Female'){
-      data_clean_mix = data_clean_mix[grep(pattern = '^f',
-                                           x = data()[[which(tolower(colnames(data())) == 'sex')]],
-                                           ignore.case = TRUE)] 
+      data_clean_mix_temp = data_clean_mix_temp[grep(pattern = '^f',
+                                                     x = data()[[which(tolower(colnames(data())) == 'sex')]],
+                                                     ignore.case = TRUE)] 
     }
     
-    data_clean_mix = data_clean_mix |>
+    data_clean_mix_temp = data_clean_mix_temp |>
       na.omit()
-    
-    mixtool.fit <- normalmixEM(x = data_clean_mix, lambda = NULL, 
-                               mu = NULL, sigma = NULL, k = input$population,
-                               mean.constr = NULL, sd.constr = NULL,
-                               epsilon = 1e-08, maxit = input$iterations, maxrestarts=20,
-                               verb = FALSE, fast=FALSE, ECM = FALSE,
+    print(data_clean_mix_temp)
+    return(data_clean_mix_temp)
+  })
+  
+  # transformation_mix = eventReactive(input$go_mix,{
+  #   transformation_mix1 <- get_transform_func(data_clean_mix(),
+  #                                             input$transformation_mix)
+  # })
+  
+  transformation_mix = eventReactive(input$go_mix,{
+    print("Fetching transformation function...")
+    transformation_func <- get_transform_func(data_clean_mix(), input$transformation_mix)
+    print(transformation_func)
+    return(transformation_func)
+  })
+  
+  transformed_mix_data = eventReactive(transformation_mix(),{
+    print("Transforming data...")
+    transformed_mix_data1 <- transform_data(x = data_clean_mix(),
+                                            transform_function = transformation_mix())
+    print(transformed_mix_data1)
+    transformed_mix_data1
+  })
+  
+  # transformed_mix_data = eventReactive(transformation_mix(),{
+  #   transformed_mix_data1 <- transform_data(x = data_clean_mix(),
+  #                                         transform_function = transformation_mix())
+  # })
+  
+  
+  
+  mixtool.fit<-eventReactive(input$go_mix, {
+    mixtool.fit <- normalmixEM(x =transformed_mix_data(), 
+                               lambda = NULL, 
+                               mu = NULL, sigma = NULL, 
+                               k = input$population,
+                               mean.constr = NULL, 
+                               sd.constr = NULL,
+                               epsilon = 1e-08, 
+                               maxit = input$iterations, 
+                               maxrestarts=20,
+                               verb = FALSE, 
+                               fast=FALSE, ECM = FALSE,
                                arbmean = TRUE, arbvar = TRUE)
   })
   
   # send plot to outputs 
   
+  output$mixPlot_os <- renderPlot({
+    if( (is.null(mixtool.fit())) | (input$transformation_mix!="yj"))return(NULL)
+    #req(transformed_data_mix())
+    cols = viridisLite::viridis(n=population())
+    
+    
+    p1 <- ggplot(data = as.data.frame(data_clean_mix(), 
+                                      aes(x=data_clean_mix()))) +
+      geom_histogram(mapping = aes(x = data_clean_mix(), y= ..density..), 
+                     inherit.aes=FALSE,
+                     fill = "white", color = "blue") + 
+      xlab(paste("Analyte Value", sep="")) + 
+      ylab("Density")
+    
+    max_lambda = max(mixtool.fit()$lambda)
+    
+    for (i in 1:population()) {
+      #i<-2
+      if(mixtool.fit()$lambda[i]==max_lambda){
+        
+        x.ulimit <- max(c(transform_data(qnorm(0.99,mixtool.fit()$mu[i],
+                                         mixtool.fit()$sigma[i]),
+                                   transform_function =
+                                     transformation_mix(),inverse = TRUE),
+                          max(data_clean_mix())*1.05))
+        
+        x.llimit <- min(c(transform_data(qnorm(0.01,mixtool.fit()$mu[i],
+                                               mixtool.fit()$sigma[i]),
+                                         transform_function =
+                                           transformation_mix(),inverse = TRUE),
+                          max(data_clean_mix())*.95))
+        
+        #find the 2.5th 97.5th percentile from the mixed model fit
+        analyte.lln <- transform_data(qnorm(0.025,mixtool.fit()$mu[i],
+                                            mixtool.fit()$sigma[i]),
+                                      transform_function =
+                                        transformation_mix(),inverse = TRUE)
+        analyte.uln <- transform_data(qnorm(0.975,mixtool.fit()$mu[i],
+                                            mixtool.fit()$sigma[i]),
+                                      transform_function =
+                                        transformation_mix(),inverse = TRUE)
+        p1  =  p1 +
+          geom_vline(xintercept = analyte.lln) +
+          geom_text(aes(x = analyte.lln, y = 0, label="2.5 percentile"), size=4, angle=90, vjust=-0.4, hjust=-1.6) +
+          geom_vline(xintercept = analyte.uln ) +
+          geom_text(aes(x = analyte.uln, y = 0, label="97.5 percentile"), size=4, angle=90, vjust=1, hjust=-1.5) +
+          ggtitle( paste0(analyte.mix(),' on original scale')) +
+          theme(plot.title = element_text(hjust = 0.5)) +
+          scale_x_continuous(limits = c(x.llimit,x.ulimit))
+        
+        # ggsave(here::here("results/figure", "figure1.tiff"), width=4, height=4, dpi=600)
+        return(p1)
+      }
+    }
+  })
+  
   output$mixPlot <- renderPlot({
     if(is.null(mixtool.fit()))return(NULL)
-    
+    #req(transformed_data_mix())
     cols = viridisLite::viridis(n=population())
     
     x.ulimit <- max((mixtool.fit()$mu)+10*(mixtool.fit()$sigma))
     x.llimit <- min((mixtool.fit()$mu)-10*(mixtool.fit()$sigma))
     
-    data_clean_mix = data()[[analyte.mix()]]
-    data_clean_mix = data_clean_mix[data()[["age"]] >= age_lb_mix()] 
-    data_clean_mix = data_clean_mix[data()[["age"]] <= age_ub_mix()] 
- 
-    
-    if(sex_mix() == 'Male'){
-      data_clean_mix = data_clean_mix[grep(pattern='^m',
-                                           x=data()[[which(tolower(colnames(data()))=='sex')]],ignore.case=TRUE)] 
-    } else if (sex_mix() == 'Female'){
-      data_clean_mix = data_clean_mix[grep(pattern='^f',
-                                           x=data()[[which(tolower(colnames(data()))=='sex')]],ignore.case=TRUE)] 
-    }
-    
-    data_clean_mix = data_clean_mix |> na.omit()
-    # 
-    data_clean_mix = transform_data(data_clean_mix,
-                                    input$transformation_mix)
-    
-    p1 <- ggplot(data = as.data.frame(data_clean_mix, aes(x= data_clean_mix))) +
-      geom_histogram(mapping = aes(x=data_clean_mix, y= ..density..), inherit.aes=FALSE,
+    p1 <- ggplot(data = as.data.frame(transformed_mix_data(), aes(x=transformed_mix_data()))) +
+      geom_histogram(mapping = aes(x=transformed_mix_data(), y= ..density..), inherit.aes=FALSE,
                      fill = "white", color = "blue") + 
-      xlab(paste("Concentration (", unit_mix(), ")", sep="")) + 
+      xlab(paste("Analyte Value", sep="")) + 
       ylab("Density")
     
-    max_lambda=max(mixtool.fit()$lambda)
+    max_lambda = max(mixtool.fit()$lambda)
     
     for (i in 1:population()) {
       #i<-2
       if(mixtool.fit()$lambda[i]==max_lambda){
         
         #find the 2.5th 97.5th percentile from the mixed model fit
-        analyte.lln <- qnorm(0.025,mixtool.fit()$mu[i], mixtool.fit()$sigma[i])
+        analyte.lln <- qnorm(0.025,mixtool.fit()$mu[i], mixtool.fit()$sigma[i]) 
         analyte.uln <- qnorm(0.975,mixtool.fit()$mu[i], mixtool.fit()$sigma[i])
         
-        p1 =  p1 +
+        p1  =  p1 +
           stat_function(geom = "line",
                         fun = dnorm,
                         args = list(mean = mixtool.fit()$mu[i],
                                     sd = mixtool.fit()$sigma[i]),
                         color = cols[i], size=1.5) +
-          geom_vline(xintercept = analyte.lln ) +
+          geom_vline(xintercept = analyte.lln) +
           geom_text(aes(x = analyte.lln, y = 0, label="2.5 percentile"), size=4, angle=90, vjust=-0.4, hjust=-1.6) +
           geom_vline(xintercept = analyte.uln ) +
           geom_text(aes(x = analyte.uln, y = 0, label="97.5 percentile"), size=4, angle=90, vjust=1, hjust=-1.5) +
@@ -505,30 +592,43 @@ server <- function(input, output, session) {
           theme(plot.title = element_text(hjust = 0.5)) +
           scale_x_continuous(limits = c(x.llimit,x.ulimit))
         
-       # ggsave(here::here("results/figure", "figure1.tiff"), width=4, height=4, dpi=600)
+        # ggsave(here::here("results/figure", "figure1.tiff"), width=4, height=4, dpi=600)
         return(p1)
       }
     }
   })
+  
   
   ref.int.mix <- eventReactive(input$go_mix, {
     my_df_mix <- data.frame()
     
     
     for (i in 1:population()) {
-      datalist <- data.frame(i,mixtool.fit()$mu[i],
-                             qnorm(0.025,mixtool.fit()$mu[i], 
-                                   mixtool.fit()$sigma[i]), 
-                             qnorm(0.975,mixtool.fit()$mu[i], 
-                                   mixtool.fit()$sigma[i]), 
+      datalist <- data.frame(i,
+                             transform_data(x = mixtool.fit()$mu[i],
+                                            transform_function = 
+                                              transformation_mix(), 
+                                            inverse = TRUE),
+                             transform_data(x = qnorm(0.025, 
+                                                      mixtool.fit()$mu[i], 
+                                                      mixtool.fit()$sigma[i]),
+                                            transform_function = 
+                                              transformation_mix(), 
+                                            inverse = TRUE), 
+                             transform_data(x = qnorm(0.975,
+                                                      mixtool.fit()$mu[i], 
+                                                      mixtool.fit()$sigma[i]),
+                                            transform_function = 
+                                              transformation_mix(), 
+                                            inverse = TRUE), 
                              mixtool.fit()$lambda[i])
       my_df_mix <- bind_rows(my_df_mix, datalist)
       
     }
     
     names(my_df_mix) <- c("Reference", "Mean", 
-                       "Lower Limit", "Upper Limit",
-                       "Lambda") 
+                          "Lower Limit", "Upper Limit",
+                          "Lambda") 
     
     output$downloadDataMix <- downloadHandler(
       filename = function() {
@@ -550,6 +650,9 @@ server <- function(input, output, session) {
     return(ref.int.mix())
   )
   
+  
+  observeEvent(input$go_mix, {show("mixPlot")})
+  
   ## Hoffmann Method information
   analyte.hoff <- eventReactive(input$go_hoff, {analyte<-input$Analyte_hoff})
   unit.hoff <- eventReactive(input$go_hoff, {unit<-input$unit_hoff})
@@ -561,7 +664,7 @@ server <- function(input, output, session) {
   # age inputs
   age_lb_hoff <- eventReactive(input$go_hoff, {age_lb_hoff<-input$age_lb_hoff})
   age_ub_hoff <- eventReactive(input$go_hoff, {age_ub_hoff<-input$age_ub_hoff})
-
+  
   
   hoff.plot <- eventReactive(input$go_hoff, {
     
@@ -582,7 +685,7 @@ server <- function(input, output, session) {
     hoff.limits <- c(LL.hoff(),UL.hoff())
     
     my_df_hoff <- Get.Hoff.Results(data_clean_hoff,from=hoff.limits[1],
-                               to=hoff.limits[2])
+                                   to=hoff.limits[2])
     
     output$hoff_table<-renderTable(
       return(my_df_hoff))
@@ -663,7 +766,7 @@ server <- function(input, output, session) {
                                  y= ..density..), 
                      inherit.aes=FALSE,
                      fill = "white", color = "blue") +
-      xlab(paste("Concentration (", unit_nonpara(), ")", sep="")) +
+      xlab(paste("Analyte Values", sep="")) +
       ylab("Density")+
       ggtitle(paste(analyte_nonpara(), " with Tukey outlier detection", sep="")) + 
       theme(plot.title = element_text(hjust = 0.5))+
@@ -702,8 +805,8 @@ server <- function(input, output, session) {
     }
     
     nonpara_limits <- quantile(data_clean_nonpara, 
-                             probs = c(0.025,0.975), 
-                             na.rm = TRUE)
+                               probs = c(0.025,0.975), 
+                               na.rm = TRUE)
     
     my_df_nonpara <- rbind(my_df_nonpara, 
                            nonpara_limits)
@@ -716,7 +819,7 @@ server <- function(input, output, session) {
     
     data.clean <- data.frame(data_clean_nonpara)
     
-    # create plot object to return
+    # create plot object to return 
     nonpara_plot <-
       ggplot(data.clean, aes(sample=data.clean))+
       geom_histogram(mapping=aes(x=array(data.clean[,1]), 
@@ -724,7 +827,7 @@ server <- function(input, output, session) {
                      inherit.aes=FALSE,
                      fill = "white", 
                      color = "blue") +
-      xlab(paste("Concentration (", unit_nonpara(), ")", sep="")) +
+      xlab(paste("Analyte Values", sep="")) +
       ylab("Density")+
       ggtitle(analyte_nonpara()) + 
       theme(plot.title = element_text(hjust = 0.5))+
@@ -747,7 +850,7 @@ server <- function(input, output, session) {
   
   
   output$nonpara_plot <- renderPlot({nonpara.plot()})
-
+  
   analyte_refineR <- eventReactive(input$go_refineR, {analyte_refineR <- input$Analyte_refineR})
   unit_refineR <- eventReactive(input$go_refineR, {unit_refineR <- input$unit_refineR})
   age_lb_refineR <- eventReactive(input$go_refineR, {age_lb_refineR <- input$age_lb_refineR})
@@ -772,7 +875,7 @@ server <- function(input, output, session) {
     
     RI <- findRI(Data =  data.clean, NBootstrap = floor(n_bs_refineR()))
     plot_refineR <- plot(RI,
-                              showCI = (input$plot_CI == "True"))
+                         showCI = (input$plot_CI == "True"))
     
     output$downloadDataRefineR <- downloadHandler(
       filename = function() {
