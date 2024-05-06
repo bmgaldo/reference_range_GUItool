@@ -12,6 +12,7 @@ library("shinycssloaders")
 library("viridisLite")
 library("DT")
 library("bestNormalize")
+library("shinythemes")
 
 # PLEASE 
 addResourcePath("myfiles", "~/Documents/GitHub/lab_ref_tool/reference_range_GUItool/data_template")
@@ -44,7 +45,7 @@ Hoff.QQ.plot <- function(x, alpha=0.05, from=NA, to=NA, xlim=range(x)) {
   plot(y ~ x, 
        data = qq.data,
        type = "l",
-       xlab = "Result",
+       xlab = "Analyte Values",
        ylab = "Quantiles of the Normal Distibution",
        xlim = xlim)
   if (!is.na(from) & !is.na(to)) {
@@ -99,7 +100,7 @@ transform_data = function(x,
 
 
 # Define UI for application that draws a histogram
-ui <- fluidPage(#theme = "bootstrap.css",
+ui <- fluidPage(theme = shinytheme("cerulean"),
   fluidRow(
     column(4,
            # Application title
@@ -123,11 +124,12 @@ ui <- fluidPage(#theme = "bootstrap.css",
                  sidebarPanel(
                    selectInput(inputId = "analyteSelect", 
                                label = "Select Analyte", 
-                               choices = NULL) # Choices will be updated based on uploaded data
+                               choices = NULL), # Choices will be updated based on uploaded data
+                   helpText("This is graphical user interface for calculating reference range intervals using a suite of methods. Import your data above and go through the tabs to start computing intervals. Check the data template in the top-right to make sure your data is in the right format.")
                  ),
                  mainPanel(
-                   plotOutput(outputId = "analyteHistogram"),
-                   DTOutput("analyteSummary")
+                   shinycssloaders::withSpinner(plotOutput(outputId = "analyteHistogram")),
+                   shinycssloaders::withSpinner(DTOutput("analyteSummary"))
                  )
                )
       ),
@@ -150,7 +152,7 @@ ui <- fluidPage(#theme = "bootstrap.css",
                                                           "Female" = 3),selected = 1),
                               # Added radio buttons for transformation options
                               radioButtons(inputId = "transformation_mix", 
-                                           label = "Transformation",
+                                           label = "Pretransform Data",
                                            choices = list("None" = "none", 
                                                           "Yeo-johnson" = "yj"),
                                            selected = "none"),
@@ -171,15 +173,16 @@ ui <- fluidPage(#theme = "bootstrap.css",
                sidebarLayout(
                  sidebarPanel(selectInput(inputId="Analyte_hoff", "Select Analyte", choices = NULL, selected = ""),
                               
-                              numericInput(inputId = "age_lb_hoff", label = "age lowerbound ", value = 0),
-                              numericInput(inputId = "age_ub_hoff", label = "age upperbound ", min=0, max=150, value = 100),
+                              numericInput(inputId = "age_lb_hoff", label = "Age lowerbound ", value = 0),
+                              numericInput(inputId = "age_ub_hoff", label = "Age upperbound ", min=0, max=150, value = 100),
                               radioButtons("sex_hoff", h3("Sex Selection"),
                                            choices = list("All" = 1, "Male" = 2,
                                                           "Female" = 3),selected = 1),
+                              # i don't think transformations really make sen
                               # Added radio buttons for transformation options
-                              radioButtons(inputId = "transformation_hoff", label = "Transformation",
-                                           choices = list("None" = "none", "Yeo-johnson" = "yj"), selected = "none"),
-                              numericInput(inputId = "linearLL", "Please select the range between the black lines that is most linear (Best Estimate) \
+                              # radioButtons(inputId = "transformation_hoff", label = "Transformation",
+                              #              choices = list("None" = "none", "Yeo-johnson" = "yj"), selected = "none"),
+                              numericInput(inputId = "linearLL", "Please select the range x-axis values between the black lines that is most linear (Best Estimate) \
                                            Lowerbound", value = -1e6),     
                               numericInput(inputId = "linearUL", "Upperbound",value= 1e6),
                               actionButton(inputId = "go_hoff", label = "Run"),
@@ -198,13 +201,13 @@ ui <- fluidPage(#theme = "bootstrap.css",
                sidebarLayout(
                  sidebarPanel(selectInput(inputId="Analyte_nonpara", "Select Analyte", choices = "", selected = ""),
                               
-                              numericInput(inputId = "age_lb_nonpara", label = "age lowerbound ", value = 0),
-                              numericInput(inputId = "age_ub_nonpara", label = "age upperbound ", min=0, max=150, value = 100),
+                              numericInput(inputId = "age_lb_nonpara", label = "Age lowerbound ", value = 0),
+                              numericInput(inputId = "age_ub_nonpara", label = "Age upperbound ", min=0, max=150, value = 100),
                               radioButtons("sex_nonpara", h3("Sex Selection"),
                                            choices = list("All" = 1, "Male" = 2,
                                                           "Female" = 3),selected = 1),                              # Added radio buttons for transformation options
-                              radioButtons(inputId = "transformation_nonpara", label = "Transformation",
-                                           choices = list("None" = "none", "Yeo-johnson" = "yj"), selected = "none"),
+                              # radioButtons(inputId = "transformation_nonpara", label = "Transformation",
+                              #              choices = list("None" = "none", "Yeo-johnson" = "yj"), selected = "none"),
                               actionButton(inputId = "go_nonpara", label = "Run"),
                               downloadButton("downloadDataNonpara", "Download"),
                               downloadButton("downloadDataNonparaTukey", "Download (outlier's removed)"),
@@ -229,9 +232,9 @@ ui <- fluidPage(#theme = "bootstrap.css",
                  sidebarPanel(selectInput(inputId="Analyte_refineR", "Select Analyte", choices = "", selected = ""),
                               
                               numericInput(inputId = "age_lb_refineR", 
-                                           label = "age lowerbound ", value = 0),
+                                           label = "Age lowerbound ", value = 0),
                               numericInput(inputId = "age_ub_refineR", 
-                                           label = "age upperbound ", min=0, 
+                                           label = "Age upperbound ", min=0, 
                                            max=150, value = 100),
                               numericInput(inputId = "RefineR_N_bootstrap", 
                                            label = "N bootstrap samples", min=0, 
@@ -311,9 +314,10 @@ server <- function(input, output, session) {
     validData <- df[[selectedAnalyte]] %>% na.omit()
     
     # Generate histogram
-    ggplot(data = data.frame(validData), aes(x = validData)) +
+   ggplot(data = data.frame(validData), aes(x = validData)) +
       geom_histogram(binwidth = (max(validData) - min(validData)) / 30) +
-      labs(title = paste("Histogram of", selectedAnalyte), x = selectedAnalyte, y = "Frequency")
+      labs(title = paste("Histogram of", selectedAnalyte), x = selectedAnalyte, y = "Frequency")+
+      theme_minimal()
   })
   
   # Render summary statistics for the selected analyte with DT
@@ -430,8 +434,6 @@ server <- function(input, output, session) {
   age_lb_mix <- eventReactive(input$go_mix, {age_lb_mix<-input$age_lb_mix})
   age_ub_mix <- eventReactive(input$go_mix, {age_ub_mix<-input$age_ub_mix})
   
-  
-  
   data_clean_mix <- eventReactive(input$go_mix, {
     data_clean_mix_temp = data()[[analyte.mix()]]
     
@@ -453,11 +455,6 @@ server <- function(input, output, session) {
     print(data_clean_mix_temp)
     return(data_clean_mix_temp)
   })
-  
-  # transformation_mix = eventReactive(input$go_mix,{
-  #   transformation_mix1 <- get_transform_func(data_clean_mix(),
-  #                                             input$transformation_mix)
-  # })
   
   transformation_mix = eventReactive(input$go_mix,{
     print("Fetching transformation function...")
@@ -510,7 +507,8 @@ server <- function(input, output, session) {
                      inherit.aes=FALSE,
                      fill = "white", color = "blue") + 
       xlab(paste("Analyte Value", sep="")) + 
-      ylab("Density")
+      ylab("Density")+
+      theme_minimal()
     
     max_lambda = max(mixtool.fit()$lambda)
     
@@ -566,7 +564,8 @@ server <- function(input, output, session) {
       geom_histogram(mapping = aes(x=transformed_mix_data(), y= ..density..), inherit.aes=FALSE,
                      fill = "white", color = "blue") + 
       xlab(paste("Analyte Value", sep="")) + 
-      ylab("Density")
+      ylab("Density")+
+      theme_minimal()
     
     max_lambda = max(mixtool.fit()$lambda)
     
@@ -684,13 +683,19 @@ server <- function(input, output, session) {
     }
     hoff.limits <- c(LL.hoff(),UL.hoff())
     
-    my_df_hoff <- Get.Hoff.Results(data_clean_hoff,from=hoff.limits[1],
+    transformation_hoff = get_transform_func(data_clean_hoff, input$transformation_mix)
+    
+    transformed_hoff_data = transform_data(x = data_clean_hoff,
+                                              transform_function = transformation_hoff)
+  
+    
+    my_df_hoff <- Get.Hoff.Results(transformed_hoff_data,from=hoff.limits[1],
                                    to=hoff.limits[2])
     
     output$hoff_table<-renderTable(
       return(my_df_hoff))
     
-    hoff.plot1 <- Hoff.QQ.plot(data_clean_hoff,from=hoff.limits[1],
+    hoff.plot1 <- Hoff.QQ.plot(transformed_hoff_data,from=hoff.limits[1],
                                to=hoff.limits[2])
     
     output$downloadDataHoffman <- downloadHandler(
@@ -768,9 +773,10 @@ server <- function(input, output, session) {
                      fill = "white", color = "blue") +
       xlab(paste("Analyte Values", sep="")) +
       ylab("Density")+
-      ggtitle(paste(analyte_nonpara(), " with Tukey outlier detection", sep="")) + 
+      ggtitle(paste(analyte_nonpara(), " with Tukey outliers removed", sep="")) + 
       theme(plot.title = element_text(hjust = 0.5))+
-      geom_vline(xintercept = nonpara_ref_tukey, color = "black")
+      geom_vline(xintercept = nonpara_ref_tukey, color = "black")+
+      theme_minimal()
     
     output$downloadDataNonparaTukey <- downloadHandler(
       filename = function() {
@@ -831,7 +837,8 @@ server <- function(input, output, session) {
       ylab("Density")+
       ggtitle(analyte_nonpara()) + 
       theme(plot.title = element_text(hjust = 0.5))+
-      geom_vline(xintercept = nonpara_limits, color= "black")
+      geom_vline(xintercept = nonpara_limits, color= "black")+
+      theme_minimal()
     
     output$downloadDataNonpara <- downloadHandler(
       filename = function() {
